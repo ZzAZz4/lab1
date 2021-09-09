@@ -11,14 +11,17 @@ namespace spatial {
 template <typename Point>
 class BasicSpatial : public SpatialBase<Point> {
  private:
-
+  std::vector<Point> values;
  public:
-  BasicSpatial() {};
-  void insert(const Point& new_point) override {}
+  BasicSpatial() = default;
+  void insert(const Point& new_point) override;
 
   // El punto de referencia no necesariamente es parte del dataset
-  Point nearest_neighbor(const Point& reference) override { return Point({0,0}); }
+  Point nearest_neighbor(const Point& reference) override;
 };
+
 
 }  // namespace spatial
 }  // namespace utec
+
+#include "BasicSpatial.inl"
