@@ -11,7 +11,7 @@ using distance_t = double;
 template <typename DataType, std::size_t DIM>
 class Point {
  public:
-  Point() { std::fill_n(_values, DIM, DataType(0)); }
+  Point() { std::fill_n(std::begin(_values), DIM, DataType(0)); }
 
   Point(const std::array<DataType, DIM>& init_array) : _values(init_array) {}
 
