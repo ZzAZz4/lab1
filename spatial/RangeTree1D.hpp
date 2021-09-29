@@ -167,197 +167,195 @@ struct range_tree_inner_t : range_tree_node_t<Key_, Value_> {
   }
 };
 template <class Key_, class Value_, class Compare_ = std::less<Key_>>
-    struct range_tree {
-      using node_type = detail::range_tree_node_t<Key_, Value_>;
+struct range_tree {
+  using node_type = detail::range_tree_node_t<Key_, Value_>;
 
-      using key_type = typename node_type::key_type;
-      using value_type = typename node_type::value_type;
-      using leaf_type = typename node_type::leaf_type;
-      using inner_type = typename node_type::inner_type;
+  using key_type = typename node_type::key_type;
+  using value_type = typename node_type::value_type;
+  using leaf_type = typename node_type::leaf_type;
+  using inner_type = typename node_type::inner_type;
 
-      using binary_fn = Compare_;
-      //    using range_container_type = std::vector<value_type>;
-      using node_ptr = node_type*;
+  using binary_fn = Compare_;
+  //    using range_container_type = std::vector<value_type>;
+  using node_ptr = node_type*;
 
-      using const_node = const node_type;
-      using const_leaf = const leaf_type;
-      using const_inner = const inner_type;
+  using const_node = const node_type;
+  using const_leaf = const leaf_type;
+  using const_inner = const inner_type;
 
-      node_type* root = nullptr;
-      binary_fn less = binary_fn();
+  node_type* root = nullptr;
+  binary_fn less = binary_fn();
 
-      ~range_tree() { node_type::delete_node(root); }
+  ~range_tree() { node_type::delete_node(root); }
 
-      /* Inserts a key-value pair in the tree.
-       * If a previous node exists with the existing key, false is returned.
-       * Else, the key-value pair is inserted and true is returned*/
-      bool insert(const key_type& key, const value_type& value) {
-        // handle the base case
-        if (this->root == nullptr) {
-          this->root = new leaf_type(key, value);
-          return true;
-        }
+  /* Inserts a key-value pair in the tree.
+   * If a previous node exists with the existing key, false is returned.
+   * Else, the key-value pair is inserted and true is returned*/
+  bool insert(const key_type& key, const value_type& value) {
+    // handle the base case
+    if (this->root == nullptr) {
+      this->root = new leaf_type(key, value);
+      return true;
+    }
 
-        auto insert_success = insert_helper(this->root, key, value);
-        if (!insert_success) return false;
+    auto insert_success = insert_helper(this->root, key, value);
+    if (!insert_success) return false;
 
-        this->root = insert_success;
-        return true;
+    this->root = insert_success;
+    return true;
+  }
+
+  /* Performs an insert of a key-value pair on the subtree rooted at node.
+   * Returns the root of the subtree that contains the inserted node, or nullptr
+   * on failure. */
+  node_ptr insert_helper(node_ptr node, const key_type& key,
+                         const value_type& value) noexcept {
+    assert(node);
+    auto node_key = node->m_key;
+    if (node_type::is_leaf(node)) {
+      // try to create a new inner node with the greatest key at its left
+      if (this->less(key, node_key)) {
+        return new inner_type(key, new leaf_type(key, value), node);
       }
+      if (this->less(node_key, key)) {
+        return new inner_type(node_key, node, new leaf_type(key, value));
+      }
+      // the key already exists
+      return nullptr;
+    }
+    // else, it's an inner node
+    auto inner_root = static_cast<inner_type*>(node);
 
-      /* Performs an insert of a key-value pair on the subtree rooted at node.
-       * Returns the root of the subtree that contains the inserted node, or nullptr
-       * on failure. */
-      node_ptr insert_helper(node_ptr node, const key_type& key,
-                             const value_type& value) noexcept {
-        assert(node);
-        auto node_key = node->m_key;
-        if (node_type::is_leaf(node)) {
-          // try to create a new inner node with the greatest key at its left
-          if (this->less(key, node_key)) {
-            return new inner_type(key, new leaf_type(key, value), node);
-          }
-          if (this->less(node_key, key)) {
-            return new inner_type(node_key, node, new leaf_type(key, value));
-          }
-          // the key already exists
-          return nullptr;
-        }
-        // else, it's an inner node
-        auto inner_root = static_cast<inner_type*>(node);
+    // try to insert and re-balance the tree
+    if (this->less(node_key, key)) {
+      auto ans = insert_helper(inner_root->p_right, key, value);
+      if (!ans) return nullptr;
 
-        // try to insert and re-balance the tree
-        if (this->less(node_key, key)) {
-          auto ans = insert_helper(inner_root->p_right, key, value);
-          if (!ans) return nullptr;
+      inner_root->set_right(ans);
+      return inner_root->rebalanced();
+    }
+    if (this->less(key, node_key)) {
+      auto ans = insert_helper(inner_root->p_left, key, value);
+      if (!ans) return nullptr;
 
-          inner_root->set_right(ans);
-          return inner_root->rebalanced();
-        }
-        if (this->less(key, node_key)) {
-          auto ans = insert_helper(inner_root->p_left, key, value);
-          if (!ans) return nullptr;
+      inner_root->set_left(ans);
+      return inner_root->rebalanced();
+    }
+    return nullptr;
+  }
 
-          inner_root->set_left(ans);
-          return inner_root->rebalanced();
-        }
+  /* Returns a vector containing all the values associated to the keys ranged
+   * from [first, last] that exist on the tree. */
+  template <class OIter>
+  OIter range_between(const key_type& first, const key_type& last,
+                      OIter out) const noexcept {
+    const_node* split = find_split(root, first, last);
+    if (node_type::is_leaf(split)) {
+      auto casted_node = static_cast<const_leaf*>(split);
+      if (!this->less(casted_node->m_key, first) &&
+          !this->less(last, casted_node->m_key)) {
+        *out++ = casted_node->m_value;
+      }
+    } else if (node_type::is_inner(split)) {
+      auto casted_node = static_cast<const_inner*>(split);
+
+      range_left_helper(casted_node->p_left, first, out);
+      range_right_helper(casted_node->p_right, last, out);
+    }
+    return out;
+  }
+
+  /* Returns the root of the lowest subtree that contains the range [first,
+   * last] In case the subtree doesn't exist, or if root is already nullptr,
+   * nullptr is returned */
+  const_node* find_split(const_node* node, const key_type& first,
+                         const key_type& last) const noexcept {
+    if (node_type::is_leaf(node)) {
+      return node;
+    } else if (node_type::is_inner(node)) {
+      auto casted_node = static_cast<const_inner*>(node);
+      bool first_on_left = !this->less(casted_node->m_key, first);
+      bool last_on_right = this->less(casted_node->m_key, last);
+
+      if (first_on_left && last_on_right) {
+        return casted_node;
+      } else if (!first_on_left && last_on_right) {
+        return find_split(casted_node->p_right, first, last);
+      } else if (first_on_left /* last is at the right*/) {
+        return find_split(casted_node->p_left, first, last);
+      } else
         return nullptr;
+    } else
+      return nullptr;
+  }
+
+  /* Executes a range search from [first, node.key] and stores the result into
+   * *out */
+  /* Returns the position of out after all the insertions are executed. */
+  template <class OIter>
+  OIter range_left_helper(const_node* node, const key_type& first,
+                          OIter out) const {
+    if (node_type::is_leaf(node)) {
+      auto casted_node = static_cast<const_leaf*>(node);
+      if (!this->less(casted_node->m_key, first)) *out++ = casted_node->m_value;
+      return out;
+    }
+    // else, it's an inner node
+    auto casted_node = static_cast<const_inner*>(node);
+    if (!this->less(casted_node->m_key, first)) {
+      out = range_left_helper(casted_node->p_left, first, out);
+      return report_all(casted_node->p_right, out);
+    } else {
+      return range_left_helper(casted_node->p_right, first, out);
+    }
+  }
+
+  /* Executes a range search from (node.key, last] and stores the result into
+   * *out */
+  /* Returns the position of out after all the insertions are executed. */
+  template <class OutputIter>
+  OutputIter range_right_helper(const_node* node, const key_type& last,
+                                OutputIter out) const {
+    if (node_type::is_leaf(node)) {
+      auto casted_node = static_cast<const_leaf*>(node);
+      if (!this->less(last, casted_node->m_key)) {
+        *out++ = casted_node->m_value;
       }
-
-      /* Returns a vector containing all the values associated to the keys ranged
-       * from [first, last] that exist on the tree. */
-      template <class OIter>
-          OIter range_between(const key_type& first, const key_type& last,
-                              OIter out) const noexcept {
-            const_node* split = find_split(root, first, last);
-            if (node_type::is_leaf(split)) {
-              auto casted_node = static_cast<const_leaf*>(split);
-              if (!this->less(casted_node->m_key, first) &&
-              !this->less(last, casted_node->m_key)) {
-                *out++ = casted_node->m_value;
-              }
-            } else if (node_type::is_inner(split)) {
-              auto casted_node = static_cast<const_inner*>(split);
-
-              range_left_helper(casted_node->p_left, first, out);
-              range_right_helper(casted_node->p_right, last, out);
-            }
-            return out;
-          }
-
-          /* Returns the root of the lowest subtree that contains the range [first,
-           * last] In case the subtree doesn't exist, or if root is already nullptr,
-           * nullptr is returned */
-          const_node* find_split(const_node* node, const key_type& first,
-                                 const key_type& last) const noexcept {
-            if (node_type::is_leaf(node)) {
-              return node;
-            } else if (node_type::is_inner(node)) {
-              auto casted_node = static_cast<const_inner*>(node);
-              bool first_on_left = !this->less(casted_node->m_key, first);
-              bool last_on_right = this->less(casted_node->m_key, last);
-
-              if (first_on_left && last_on_right) {
-                return casted_node;
-              } else if (!first_on_left && last_on_right) {
-                return find_split(casted_node->p_right, first, last);
-              } else if (first_on_left /* last is at the right*/) {
-                return find_split(casted_node->p_left, first, last);
-              } else
-                return nullptr;
-            } else
-              return nullptr;
-          }
-
-          /* Executes a range search from [first, node.key] and stores the result into
-           * *out */
-          /* Returns the position of out after all the insertions are executed. */
-          template <class OIter>
-              OIter range_left_helper(const_node* node, const key_type& first,
-                                      OIter out) const {
-                if (node_type::is_leaf(node)) {
-                  auto casted_node = static_cast<const_leaf*>(node);
-                  if (!this->less(casted_node->m_key, first)) *out++ = casted_node->m_value;
-                  return out;
-                }
-                // else, it's an inner node
-                auto casted_node = static_cast<const_inner*>(node);
-                if (!this->less(casted_node->m_key, first)) {
-                  out = range_left_helper(casted_node->p_left, first, out);
-                  return report_all(casted_node->p_right, out);
-                } else {
-                  return range_left_helper(casted_node->p_right, first, out);
-                }
-              }
-
-              /* Executes a range search from (node.key, last] and stores the result into
-               * *out */
-              /* Returns the position of out after all the insertions are executed. */
-              template <class OutputIter>
-                  OutputIter range_right_helper(const_node* node, const key_type& last,
-                                                OutputIter out) const {
-                    if (node_type::is_leaf(node)) {
-                      auto casted_node = static_cast<const_leaf*>(node);
-                      if (!this->less(last, casted_node->m_key)) {
-                        *out++ = casted_node->m_value;
-                      }
-                      return out;
-                    };
-                    // else, it's an inner node
-                    auto casted_node = static_cast<const_inner*>(node);
-                    if (this->less(casted_node->m_key, last)) {
-                      out = report_all(casted_node->p_left, out);
-                      return range_right_helper(casted_node->p_right, last, out);
-                    } else {
-                      return range_right_helper(casted_node->p_left, last, out);
-                    }
-                  }
-
-                  /* Stores all the values of the subtree rooted at node into *out.
-                   * Returns the position of out after all the insertions are executed */
-                  template <class OutputIter>
-                      OutputIter report_all(const_node* node, OutputIter out) const {
-                        assert(node);
-                        if (node_type::is_leaf(node)) {
-                          *out++ = static_cast<const leaf_type*>(node)->m_value;
-                          return out;
-                        }
-                        auto casted_node = static_cast<const inner_type*>(node);
-                        auto end_pos = report_all(casted_node->p_left, out);
-                        return report_all(casted_node->p_right, end_pos);
-                      }
+      return out;
     };
+    // else, it's an inner node
+    auto casted_node = static_cast<const_inner*>(node);
+    if (this->less(casted_node->m_key, last)) {
+      out = report_all(casted_node->p_left, out);
+      return range_right_helper(casted_node->p_right, last, out);
+    } else {
+      return range_right_helper(casted_node->p_left, last, out);
+    }
+  }
+
+  /* Stores all the values of the subtree rooted at node into *out.
+   * Returns the position of out after all the insertions are executed */
+  template <class OutputIter>
+  OutputIter report_all(const_node* node, OutputIter out) const {
+    assert(node);
+    if (node_type::is_leaf(node)) {
+      *out++ = static_cast<const leaf_type*>(node)->m_value;
+      return out;
+    }
+    auto casted_node = static_cast<const inner_type*>(node);
+    auto end_pos = report_all(casted_node->p_left, out);
+    return report_all(casted_node->p_right, end_pos);
+  }
+};
 
 }  // namespace detail
-
-
 
 namespace utec {
 namespace spatial {
 
 template <class Point>
 struct point_less_equals {
-  constexpr bool operator () (const Point& lhs, const Point& rhs) const {
+  constexpr bool operator()(const Point& lhs, const Point& rhs) const {
     return !(rhs < lhs);
   }
 };
