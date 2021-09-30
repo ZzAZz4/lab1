@@ -5,7 +5,20 @@
 
 #include "SpatialBase.h"
 
+namespace utec {
+namespace spatial {
 namespace detail {
+
+#ifndef SPATIAL_IMPL_POINT_LESS_EQ
+#define SPATIAL_IMPL_POINT_LESS_EQ
+template <class Point>
+struct point_less_equals {
+  constexpr bool operator()(const Point& lhs, const Point& rhs) const {
+    return !(rhs < lhs);
+  }
+};
+#endif
+
 template <class Key_, class Value_>
 struct range_tree_node_t;
 
@@ -175,8 +188,7 @@ struct range_tree {
   using leaf_type = typename node_type::leaf_type;
   using inner_type = typename node_type::inner_type;
 
-  using binary_fn = Compare_;
-  //    using range_container_type = std::vector<value_type>;
+  using binary_func = Compare_;
   using node_ptr = node_type*;
 
   using const_node = const node_type;
@@ -184,7 +196,7 @@ struct range_tree {
   using const_inner = const inner_type;
 
   node_type* root = nullptr;
-  binary_fn less = binary_fn();
+  binary_func less = binary_func();
 
   ~range_tree() { node_type::delete_node(root); }
 
@@ -244,8 +256,8 @@ struct range_tree {
     return nullptr;
   }
 
-  /* Returns a vector containing all the values associated to the keys ranged
-   * from [first, last] that exist on the tree. */
+  /* Writes the range containing all the values associated to the keys ranged
+   * from [first, last] that exist on the tree into out. */
   template <class OIter>
   OIter range_between(const key_type& first, const key_type& last,
                       OIter out) const noexcept {
@@ -272,26 +284,27 @@ struct range_tree {
                          const key_type& last) const noexcept {
     if (node_type::is_leaf(node)) {
       return node;
-    } else if (node_type::is_inner(node)) {
+    }
+    if (node_type::is_inner(node)) {
       auto casted_node = static_cast<const_inner*>(node);
       bool first_on_left = !this->less(casted_node->m_key, first);
       bool last_on_right = this->less(casted_node->m_key, last);
 
       if (first_on_left && last_on_right) {
         return casted_node;
-      } else if (!first_on_left && last_on_right) {
+      }
+      if (!first_on_left && last_on_right) {
         return find_split(casted_node->p_right, first, last);
-      } else if (first_on_left /* last is at the right*/) {
+      }
+      if (first_on_left /* last is at the right*/) {
         return find_split(casted_node->p_left, first, last);
-      } else
-        return nullptr;
-    } else
-      return nullptr;
+      }
+    }
+    return nullptr;
   }
 
   /* Executes a range search from [first, node.key] and stores the result into
-   * *out */
-  /* Returns the position of out after all the insertions are executed. */
+   * out. Returns the position of out after all the insertions are executed. */
   template <class OIter>
   OIter range_left_helper(const_node* node, const key_type& first,
                           OIter out) const {
@@ -350,32 +363,24 @@ struct range_tree {
 
 }  // namespace detail
 
-namespace utec {
-namespace spatial {
-
-template <class Point>
-struct point_less_equals {
-  constexpr bool operator()(const Point& lhs, const Point& rhs) const {
-    return !(rhs < lhs);
-  }
-};
-
 /**
  * RangeTree1D implementation
  */
 template <typename Point>
 class RangeTree1D : public SpatialBase<Point> {
  private:
-  detail::range_tree<Point, Point, point_less_equals<Point>> tree;
+  detail::range_tree<Point, Point, detail::point_less_equals<Point>> tree;
 
  public:
-  RangeTree1D(){};
+  RangeTree1D() = default;
+  ;
   void insert(const Point& new_point) override {
     tree.insert(new_point, new_point);
   }
 
   // El punto de referencia no necesariamente es parte del dataset
   Point nearest_neighbor(const Point& reference) override { return Point({0}); }
+
   std::vector<Point> range(const Point& min, const Point& max) override {
     std::vector<Point> ret;
     tree.range_between(min, max, std::back_inserter(ret));
