@@ -20,12 +20,17 @@ template <class Key_, class Value_>
 struct bst_node_t {
   using key_type = Key_;
   using value_type = Value_;
+  using pointer = bst_node_t*;
 
   key_type m_key;
   value_type m_value;
 
   bst_node_t* m_left = nullptr;
   bst_node_t* m_right = nullptr;
+
+  bst_node_t(const key_type& key, const value_type& value,
+             pointer left = nullptr, pointer right = nullptr)
+      : m_key(key), m_value(value), m_left(left), m_right(right) {}
 
   /* Deletes the subtree */
   ~bst_node_t() {
@@ -62,7 +67,7 @@ struct bs_tree_t {
   bool insert_helper(node_pointer& node, const key_type& key,
                      const value_type& value) noexcept {
     if (!node) {
-      node = new node_type{key, value};
+      node = new node_type(key, value);
       return true;
     }
     if (this->less(node->m_key, key)) {
